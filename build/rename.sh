@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# Copyright (c) 2016-2017 Franco Fichtner <franco@opnsense.org>
+# Copyright (c) 2016-2019 Franco Fichtner <franco@opnsense.org>
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -34,79 +34,96 @@ SELF=rename
 for ARG in ${@}; do
 	case ${ARG} in
 	arm)
-		echo ">>> Renaming arm image: ${VERSION}"
-		mv ${IMAGESDIR}/*-${PRODUCT_FLAVOUR}-arm-${PRODUCT_ARCH}.img \
-		    ${IMAGESDIR}/${PRODUCT_NAME}-${VERSION}-${PRODUCT_FLAVOUR}-arm-${PRODUCT_ARCH}.img
+		echo ">>> Renaming arm image: ${PRODUCT_VERSION}"
+		for FILE in $(find ${IMAGESDIR} -name \
+		    "*-${PRODUCT_FLAVOUR}-arm-${PRODUCT_ARCH}.*"); do
+		    mv ${FILE} ${IMAGESDIR}/${PRODUCT_NAME}${PRODUCT_SUFFIX}-${PRODUCT_VERSION}-${PRODUCT_FLAVOUR}-arm-${FILE##*-}
+		done
 		;;
 	base)
-		setup_stage ${STAGEDIR}
+		setup_stage ${STAGEDIR} work
 		echo ">>> Repacking base set..."
 		BASE_SET=$(find ${SETSDIR} -name "base-*-${PRODUCT_ARCH}.txz")
-		tar -C ${STAGEDIR} -xjf ${BASE_SET}
-		echo ${VERSION}-${PRODUCT_ARCH} > \
-		    ${STAGEDIR}/usr/local/opnsense/version/base
+		setup_set ${STAGEDIR}/work ${BASE_SET}
+		cp ${STAGEDIR}/work/usr/local/opnsense/version/base.obsolete \
+		    ${STAGEDIR}/obsolete
+		REPO_VERSION=${PRODUCT_VERSION}
+		setup_version ${STAGEDIR} ${STAGEDIR}/work ${ARG} ${STAGEDIR}/obsolete
 		rm ${BASE_SET}
-		tar -C ${STAGEDIR} -cvf - . | xz > ${BASE_SET}
+		generate_set ${STAGEDIR}/work ${BASE_SET}
 		generate_signature ${BASE_SET}
-		echo ">>> Renaming base set: ${VERSION}"
+		echo ">>> Renaming base set: ${PRODUCT_VERSION}"
 		for FILE in $(find ${SETSDIR} -name \
 		    "base-*-${PRODUCT_ARCH}.*"); do
-			mv ${FILE} ${SETSDIR}/base-${VERSION}-${FILE##*-}
+			mv ${FILE} ${SETSDIR}/base-${PRODUCT_VERSION}-${FILE##*-}
 		done
 		;;
 	distfiles)
-		echo ">>> Renaming distfiles set: ${VERSION}"
+		echo ">>> Renaming distfiles set: ${PRODUCT_VERSION}"
 		mv ${SETSDIR}/distfiles-*.tar \
-		    ${SETSDIR}/distfiles-${VERSION}.tar
+		    ${SETSDIR}/distfiles-${PRODUCT_VERSION}.tar
 		;;
 	dvd)
-		echo ">>> Renaming dvd image: ${VERSION}"
-		mv ${IMAGESDIR}/*-${PRODUCT_FLAVOUR}-dvd-${PRODUCT_ARCH}.iso \
-		    ${IMAGESDIR}/${PRODUCT_NAME}-${VERSION}-${PRODUCT_FLAVOUR}-dvd-${PRODUCT_ARCH}.iso
+		echo ">>> Renaming dvd image: ${PRODUCT_VERSION}"
+		for FILE in $(find ${IMAGESDIR} -name \
+		    "*-${PRODUCT_FLAVOUR}-dvd-${PRODUCT_ARCH}.*"); do
+		    mv ${FILE} ${IMAGESDIR}/${PRODUCT_NAME}${PRODUCT_SUFFIX}-${PRODUCT_VERSION}-${PRODUCT_FLAVOUR}-dvd-${FILE##*-}
+		done
 		;;
 	kernel)
-		setup_stage ${STAGEDIR}
+		setup_stage ${STAGEDIR} work
 		echo ">>> Repacking kernel set..."
-		KERNEL_SET=$(find ${SETSDIR} -name "kernel-*-${PRODUCT_ARCH}.txz")
-		tar -C ${STAGEDIR} -xjf ${KERNEL_SET}
-		echo ${VERSION}-${PRODUCT_ARCH} > \
-		    ${STAGEDIR}/usr/local/opnsense/version/kernel
+		KERNEL_SET=$(find ${SETSDIR} -name "kernel-dbg-*-${PRODUCT_ARCH}.txz")
+		KERNEL_NAME="kernel-dbg"
+		if [ -z "${KERNEL_SET}" ]; then
+			KERNEL_SET=$(find ${SETSDIR} -name "kernel-*-${PRODUCT_ARCH}.txz")
+			KERNEL_NAME="kernel"
+		fi
+		setup_set ${STAGEDIR}/work ${KERNEL_SET}
+		REPO_VERSION=${PRODUCT_VERSION}
+		setup_version ${STAGEDIR} ${STAGEDIR}/work ${ARG}
 		rm ${KERNEL_SET}
-		tar -C ${STAGEDIR} -cvf - . | xz > ${KERNEL_SET}
+		generate_set ${STAGEDIR}/work ${KERNEL_SET}
 		generate_signature ${KERNEL_SET}
-		echo ">>> Renaming kernel set: ${VERSION}"
+		echo ">>> Renaming kernel set: ${PRODUCT_VERSION}"
 		for FILE in $(find ${SETSDIR} -name \
 		    "kernel-*-${PRODUCT_ARCH}.*"); do
-			mv ${FILE} ${SETSDIR}/kernel-${VERSION}-${FILE##*-}
+			mv ${FILE} ${SETSDIR}/${KERNEL_NAME}-${PRODUCT_VERSION}-${FILE##*-}
 		done
 		;;
 	nano)
-		echo ">>> Renaming nano image: ${VERSION}"
-		mv ${IMAGESDIR}/*-${PRODUCT_FLAVOUR}-nano-${PRODUCT_ARCH}.img \
-		    ${IMAGESDIR}/${PRODUCT_NAME}-${VERSION}-${PRODUCT_FLAVOUR}-nano-${PRODUCT_ARCH}.img
+		echo ">>> Renaming nano image: ${PRODUCT_VERSION}"
+		for FILE in $(find ${IMAGESDIR} -name \
+		    "*-${PRODUCT_FLAVOUR}-nano-${PRODUCT_ARCH}.*"); do
+		    mv ${FILE} ${IMAGESDIR}/${PRODUCT_NAME}${PRODUCT_SUFFIX}-${PRODUCT_VERSION}-${PRODUCT_FLAVOUR}-nano-${FILE##*-}
+		done
 		;;
 	packages)
-		echo ">>> Renaming packages set: ${VERSION}"
+		echo ">>> Renaming packages set: ${PRODUCT_VERSION}"
 		for FILE in $(find ${SETSDIR} -name \
 		    "packages-*-${PRODUCT_FLAVOUR}-${PRODUCT_ARCH}.*"); do
-			mv ${FILE} ${SETSDIR}/packages-${VERSION}-${PRODUCT_FLAVOUR}-${FILE##*-}
+			mv ${FILE} ${SETSDIR}/packages-${PRODUCT_VERSION}-${PRODUCT_FLAVOUR}-${FILE##*-}
 		done
 		;;
 	serial)
-		echo ">>> Renaming serial image: ${VERSION}"
-		mv ${IMAGESDIR}/*-${PRODUCT_FLAVOUR}-serial-${PRODUCT_ARCH}.img \
-		    ${IMAGESDIR}/${PRODUCT_NAME}-${VERSION}-${PRODUCT_FLAVOUR}-serial-${PRODUCT_ARCH}.img
+		echo ">>> Renaming serial image: ${PRODUCT_VERSION}"
+		for FILE in $(find ${IMAGESDIR} -name \
+		    "*-${PRODUCT_FLAVOUR}-serial-${PRODUCT_ARCH}.*"); do
+		    mv ${FILE} ${IMAGESDIR}/${PRODUCT_NAME}${PRODUCT_SUFFIX}-${PRODUCT_VERSION}-${PRODUCT_FLAVOUR}-serial-${FILE##*-}
+		done
 		;;
 	vga)
-		echo ">>> Renaming vga image: ${VERSION}"
-		mv ${IMAGESDIR}/*-${PRODUCT_FLAVOUR}-vga-${PRODUCT_ARCH}.img \
-		    ${IMAGESDIR}/${PRODUCT_NAME}-${VERSION}-${PRODUCT_FLAVOUR}-vga-${PRODUCT_ARCH}.img
+		echo ">>> Renaming vga image: ${PRODUCT_VERSION}"
+		for FILE in $(find ${IMAGESDIR} -name \
+		    "*-${PRODUCT_FLAVOUR}-vga-${PRODUCT_ARCH}.*"); do
+		    mv ${FILE} ${IMAGESDIR}/${PRODUCT_NAME}${PRODUCT_SUFFIX}-${PRODUCT_VERSION}-${PRODUCT_FLAVOUR}-vga-${FILE##*-}
+		done
 		;;
 	vm)
-		echo ">>> Renaming vm set: ${VERSION}"
+		echo ">>> Renaming vm set: ${PRODUCT_VERSION}"
 		for FILE in $(find ${SETSDIR} -name \
 		    "*-${PRODUCT_FLAVOUR}-vm-${PRODUCT_ARCH}.*"); do
-			mv ${FILE} ${SETSDIR}/${PRODUCT_NAME}-${VERSION}-${PRODUCT_FLAVOUR}-vm-${FILE##*-}
+			mv ${FILE} ${SETSDIR}/${PRODUCT_NAME}${PRODUCT_SUFFIX}-${PRODUCT_VERSION}-${PRODUCT_FLAVOUR}-vm-${FILE##*-}
 		done
 		;;
 	esac

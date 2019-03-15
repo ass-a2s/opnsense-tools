@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# Copyright (c) 2015-2017 Franco Fichtner <franco@opnsense.org>
+# Copyright (c) 2015-2018 Franco Fichtner <franco@opnsense.org>
 # Copyright (c) 2004-2009 Scott Ullrich <sullrich@gmail.com>
 #
 # Redistribution and use in source and binary forms, with or without
@@ -55,14 +55,14 @@ setup_entropy ${STAGEDIR}
 
 cat > ${STAGEDIR}/etc/fstab << EOF
 # Device		Mountpoint	FStype	Options		Dump	Pass#
-/dev/ufs/${NANOLABEL}	/		ufs	rw		1	1
+/dev/ufs/${NANOLABEL}	/		ufs	rw		1	1	# notrim
 EOF
 
 makefs -t ffs -s ${NANOSIZE} -B little \
     -o label=${NANOLABEL} ${NANOIMG} ${STAGEDIR}
 
-DEV=$(mdconfig -a -t vnode -f ${NANOIMG} -x 63 -y 255)
+DEV=$(mdconfig -a -t vnode -f ${NANOIMG})
 gpart create -s BSD ${DEV}
 gpart bootcode -b ${STAGEDIR}/boot/boot ${DEV}
-gpart add -t -a 4k freebsd-ufs ${DEV}
+gpart add -t freebsd-ufs ${DEV}
 mdconfig -d -u ${DEV}

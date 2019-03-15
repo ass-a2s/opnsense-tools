@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# Copyright (c) 2014-2017 Franco Fichtner <franco@opnsense.org>
+# Copyright (c) 2014-2019 Franco Fichtner <franco@opnsense.org>
 # Copyright (c) 2010-2011 Scott Ullrich <sullrich@gmail.com>
 #
 # Redistribution and use in source and binary forms, with or without
@@ -28,7 +28,7 @@
 
 set -e
 
-OPTS="a:B:b:C:c:d:E:e:F:f:G:g:H:K:k:L:l:m:n:O:o:P:p:Q:R:S:s:T:t:U:u:v:V:"
+OPTS="a:B:b:C:c:D:d:E:e:F:f:G:g:H:h:I:K:k:L:l:m:n:O:o:P:p:Q:q:R:r:S:s:T:t:U:u:v:V:"
 
 while getopts ${OPTS} OPT; do
 	case ${OPT} in
@@ -52,6 +52,9 @@ while getopts ${OPTS} OPT; do
 	d)
 		export PRODUCT_DEVICE=${OPTARG}
 		;;
+	D)
+		export DEVELBRANCH=${OPTARG}
+		;;
 	E)
 		export COREBRANCH=${OPTARG}
 		;;
@@ -73,6 +76,9 @@ while getopts ${OPTS} OPT; do
 	H)
 		export COREENV=${OPTARG}
 		;;
+	h)
+		export PLUGINSENV=${OPTARG}
+		;;
 	K)
 		if [ -n "${OPTARG}" ]; then
 			export PRODUCT_PUBKEY=${OPTARG}
@@ -82,6 +88,9 @@ while getopts ${OPTS} OPT; do
 		if [ -n "${OPTARG}" ]; then
 			export PRODUCT_PRIVKEY=${OPTARG}
 		fi
+		;;
+	I)
+		export UPLOADDIR=${OPTARG}
 		;;
 	L)
 		if [ -n "${OPTARG}" ]; then
@@ -115,8 +124,16 @@ while getopts ${OPTS} OPT; do
 	Q)
 		export PRODUCT_QUICK=${OPTARG}
 		;;
+	q)
+		for _VERSION in ${OPTARG}; do
+			eval "export ${_VERSION}"
+		done
+		;;
 	R)
 		export PORTSREFDIR=${OPTARG}
+		;;
+	r)
+		export PRODUCT_SERVER=${OPTARG}
 		;;
 	S)
 		export SRCDIR=${OPTARG}
@@ -170,6 +187,12 @@ if [ -z "${PRODUCT_NAME}" -o \
     -z "${PRODUCT_MIRROR}" -o \
     -z "${PRODUCT_DEVICE}" -o \
     -z "${PRODUCT_SPEED}" -o \
+    -z "${PRODUCT_SERVER}" -o \
+    -z "${PRODUCT_PHP}" -o \
+    -z "${PRODUCT_PERL}" -o \
+    -z "${PRODUCT_PYTHON2}" -o \
+    -z "${PRODUCT_PYTHON3}" -o \
+    -z "${PRODUCT_RUBY}" -o \
     -z "${PRODUCT_KERNEL}" -o \
     -z "${PRODUCT_GITBASE}" -o \
     -z "${PLUGINSBRANCH}" -o \
@@ -204,9 +227,11 @@ export DEVICEDIR="${TOOLSDIR}/device"
 export PACKAGESDIR="/.pkg"
 
 # define and bootstrap target directories
-export IMAGESDIR="/tmp/images"
-export SETSDIR="/tmp/sets"
-export LOGSDIR="/tmp/logs"
+export TARGETDIRPREFIX="/usr/local/opnsense/build"
+export TARGETDIR="${TARGETDIRPREFIX}/${PRODUCT_SETTINGS}/${PRODUCT_ARCH}"
+export IMAGESDIR="${TARGETDIR}/images"
+export LOGSDIR="${TARGETDIR}/logs"
+export SETSDIR="${TARGETDIR}/sets"
 mkdir -p ${IMAGESDIR} ${SETSDIR} ${LOGSDIR}
 
 # automatically expanded product stuff
@@ -214,19 +239,28 @@ export PRODUCT_PRIVKEY=${PRODUCT_PRIVKEY:-"${CONFIGDIR}/repo.key"}
 export PRODUCT_PUBKEY=${PRODUCT_PUBKEY:-"${CONFIGDIR}/repo.pub"}
 export PRODUCT_SIGNCMD=${PRODUCT_SIGNCMD:-"${TOOLSDIR}/scripts/pkg_sign.sh ${PRODUCT_PUBKEY} ${PRODUCT_PRIVKEY}"}
 export PRODUCT_SIGNCHK=${PRODUCT_SIGNCHK:-"${TOOLSDIR}/scripts/pkg_fingerprint.sh ${PRODUCT_PUBKEY}"}
-export PRODUCT_RELEASE="${PRODUCT_NAME}-${PRODUCT_VERSION}-${PRODUCT_FLAVOUR}"
+export PRODUCT_RELEASE="${PRODUCT_NAME}${PRODUCT_SUFFIX}-${PRODUCT_VERSION}-${PRODUCT_FLAVOUR}"
 export PRODUCT_CORES="${PRODUCT_TYPE} ${PRODUCT_TYPE}-devel"
 export PRODUCT_CORE="${PRODUCT_TYPE}${PRODUCT_SUFFIX}"
 export PRODUCT_PLUGINS="os-*"
 export PRODUCT_PLUGIN="os-*${PRODUCT_SUFFIX}"
 
-if [ "${SELF}" != print -a "${SELF}" != info ]; then
+# load device-specific environment
+if [ -f ${DEVICEDIR}/${PRODUCT_DEVICE}.conf ]; then
+	. ${DEVICEDIR}/${PRODUCT_DEVICE}.conf
+fi
+
+case "${SELF}" in
+confirm|info|print)
+	;;
+*)
 	if [ -z "${PRINT_ENV_SKIP}" ]; then
 		export PRINT_ENV_SKIP=1
 		env | sort
 	fi
 	echo ">>> Running build step: ${SELF}"
-fi
+	;;
+esac
 
 git_reset()
 {
@@ -311,22 +345,48 @@ git_tag()
 {
 	# Fuzzy-match a tag and return it for the caller.
 
-	POOL=$(git -C ${1} tag | grep ^${2}\$ || true)
+	POOL=$(git -C ${1} tag | awk '$1 == "'"${2}"'"')
 	if [ -z "${POOL}" ]; then
 		VERSION=${2%.*}
 		FUZZY=${2##${VERSION}.}
+		MAX=0
 
-		for _POOL in $(git -C ${1} tag | grep ^${VERSION} | sort -r); do
+		if [ "$(echo "${VERSION}" | \
+		    grep -c '[.]')" = "0" ]; then
+			FUZZY=
+		fi
+	fi
+
+	if [ -z "${POOL}" -a -n "${FUZZY}" ]; then
+		for _POOL in $(git -C ${1} tag | \
+		    awk 'index($1, "'"${VERSION}"'")'); do
 			_POOL=${_POOL##${VERSION}}
 			if [ -z "${_POOL}" ]; then
-				POOL=${VERSION}${_POOL}
-				break
+				continue
 			fi
-			if [ ${_POOL##.} -lt ${FUZZY} ]; then
-				POOL=${VERSION}${_POOL}
-				break
+			_POOL=${_POOL##.}
+			if [ "$(echo "${_POOL}${FUZZY}" | \
+			    grep -c '[a-z.]')" != "0" ]; then
+				continue
+			fi
+			if [ ${_POOL} -lt ${FUZZY} -a \
+			    ${_POOL} -gt ${MAX} ]; then
+				MAX=${_POOL}
+				continue
 			fi
 		done
+
+		if [ ${MAX} -gt 0 ]; then
+			POOL=${VERSION}.${MAX}
+		else
+			POOL=${VERSION}
+		fi
+
+		# make sure there is no garbage match
+		POOL_TEST=$(git -C ${1} tag | awk '$1 == "'"${POOL}"'"')
+		if [ "${POOL_TEST}" != "${POOL}" ]; then
+			POOL=
+		fi
 	fi
 
 	if [ -z "${POOL}" ]; then
@@ -334,7 +394,7 @@ git_tag()
 		exit 1
 	fi
 
-	echo ">>> ${1} matches tag ${2} -> ${POOL}"
+	echo ">>> ${1} matches tag ${POOL}"
 
 	export REPO_TAG=${POOL}
 }
@@ -407,35 +467,62 @@ setup_xtools()
 	echo 'configd_enable="NO"' >> ${1}/etc/rc.conf.local
 }
 
+setup_norun()
+{
+	# prevent the start of configd
+	echo 'configd_enable="NO"' >> ${1}/etc/rc.conf.local
+}
+
 setup_chroot()
 {
 	# historic glue
 	setup_xtools ${1}
+	setup_norun ${1}
 
 	echo ">>> Setting up chroot in ${1}"
 
 	cp /etc/resolv.conf ${1}/etc
 	mount -t devfs devfs ${1}/dev
 	chroot ${1} /bin/sh /etc/rc.d/ldconfig start
-
-	# prevent the start of configd in build environments
-	echo 'configd_enable="NO"' >> ${1}/etc/rc.conf.local
 }
 
-build_marker()
+setup_version()
 {
-	MARKER_DISTDIR="$(make -C${SRCDIR}/release -V DISTDIR)/${1}"
-	MARKER_OBJDIR="$(make -C${SRCDIR}/release -V .OBJDIR)"
-	MARKER_VERDIR="/usr/local/opnsense/version"
+	VERSIONDIR="${2}/usr/local/opnsense/version"
 
-	# reset the distribution directory as well
-	setup_stage "${MARKER_OBJDIR}/${MARKER_DISTDIR}"
+	# clear previous in case of rename
+	rm -rf ${VERSIONDIR}
 
-	MARKER="${MARKER_OBJDIR}/${MARKER_DISTDIR}/${MARKER_VERDIR}"
+	# estimate size while version dir is gone
+	local SIZE=$(tar -C ${2} -c -f - . | wc -c | awk '{ print $1 }')
 
-	mkdir -p "${MARKER}"
+	# start over
+	mkdir -p ${VERSIONDIR}
 
-	echo "${REPO_VERSION}-${PRODUCT_ARCH}" > "${MARKER}/${1}"
+	# inject obsolete file from previous copy
+	if [ -f "${4}" ]; then
+		cp ${4} ${VERSIONDIR}/${3}.obsolete
+	fi
+
+	# embed size for general information
+	echo "${SIZE}" > ${VERSIONDIR}/${3}.size
+
+	# embed target architecture
+	echo "${PRODUCT_ARCH}" > ${VERSIONDIR}/${3}.arch
+
+	# embed version for update checks
+	echo "${REPO_VERSION}" > ${VERSIONDIR}/${3}
+
+	# mtree generation must come LAST
+	echo "./var" > ${1}/mtree.exclude
+	mtree -c -k uid,gid,mode,size,sha256digest -p ${2} \
+	    -X ${1}/mtree.exclude > ${1}/mtree
+	mv ${1}/mtree ${VERSIONDIR}/${3}.mtree
+	chmod 600 ${VERSIONDIR}/${3}.mtree
+	rm ${1}/mtree.exclude
+
+	# for testing, custom builds, etc.
+	#touch ${VERSIONDIR}/${3}.lock
 }
 
 setup_base()
@@ -490,12 +577,25 @@ setup_entropy()
 	umask 022
 }
 
+setup_set()
+{
+	tar -C ${1} -xJpf ${2}
+}
+
+generate_set()
+{
+	tar -C ${1} -cvf - . | xz > ${2}
+}
+
 generate_signature()
 {
 	if [ -n "$(${PRODUCT_SIGNCHK})" ]; then
 		echo -n ">>> Creating ${PRODUCT_SETTINGS} signature for $(basename ${1})... "
 		sha256 -q ${1} | ${PRODUCT_SIGNCMD} > ${1}.sig
 		echo "done"
+	else
+		# do not keep a stale signature
+		rm -f ${1}.sig
 	fi
 }
 
@@ -595,6 +695,43 @@ remove_packages()
 	done
 }
 
+cleanup_packages()
+{
+	BASEDIR=${1}
+
+	for PKG in $(cd ${1}; find .${PACKAGESDIR}/All -type f); do
+		# all packages that install have their dependencies fulfilled
+		if pkg -c ${1} add ${PKG}; then
+			continue
+		fi
+
+		# some packages clash in files with others, check for conflicts
+		PKGORIGIN=$(pkg -c ${1} info -F ${PKG} | \
+		    grep ^Origin | awk '{ print $3; }')
+		PKGGLOBS=
+		for CONFLICTS in CONFLICTS CONFLICTS_INSTALL; do
+			PKGGLOBS="${PKGGLOBS} $(make -C ${PORTSDIR}/${PKGORIGIN} -V ${CONFLICTS})"
+		done
+		for PKGGLOB in ${PKGGLOBS}; do
+			pkg -c ${1} remove -gy "${PKGGLOB}" || true
+		done
+
+		# if the conflicts are resolved this works now, but remove
+		# the package again as it may clash again later...
+		if pkg -c ${1} add ${PKG}; then
+			pkg -c ${1} remove -y ${PKGORIGIN}
+			continue
+		fi
+
+		# if nothing worked, we are missing a dependency and force
+		# a rebuild for it and its reverse dependencies later on
+		rm -f ${1}/${PKG}
+	done
+
+	pkg -c ${1} set -yaA1
+	pkg -c ${1} autoremove -y
+}
+
 lock_packages()
 {
 	BASEDIR=${1}
@@ -673,8 +810,7 @@ install_packages()
 custom_packages()
 {
 	chroot ${1} /bin/sh -es << EOF
-make -C ${2} ${3} FLAVOUR=${PRODUCT_FLAVOUR} WRKDIR=/work \
-    PKGDIR=${PACKAGESDIR}/All package
+make -C ${2} ${3} FLAVOUR=${PRODUCT_FLAVOUR} PKGDIR=${PACKAGESDIR}/All package
 EOF
 }
 
@@ -711,12 +847,11 @@ bundle_packages()
 
 	if [ -n "${SELF}" ]; then
 		# add build marker to set
-		MARKER="${BASEDIR}${PACKAGESDIR}-new/.${SELF}_done"
-		if [ ! -f ${MARKER} ]; then
+		if [ ! -f ${BASEDIR}/.pkg-err ]; then
 			# append build info if new
-			sh ./info.sh > ${MARKER}
+			sh ./info.sh > \
+			    ${BASEDIR}${PACKAGESDIR}-new/.${SELF}_done
 		fi
-		touch ${MARKER}
 	fi
 
 	# push packages to home location
@@ -753,18 +888,21 @@ bundle_packages()
 	echo "done"
 
 	generate_signature ${SETSDIR}/packages-${REPO_RELEASE}.tar
-}
 
-clean_packages()
-{
-	rm -rf ${1}${PACKAGESDIR}
+	(cd ${SETSDIR}; ls -lah packages-${REPO_RELEASE}.*)
 }
 
 setup_packages()
 {
+	setup_norun ${1}
 	extract_packages ${1}
-	install_packages ${@} ${PRODUCT_CORE} ${PRODUCT_ADDITIONS}
-	clean_packages ${1}
+	install_packages ${@} ${PRODUCT_ADDITIONS} ${PRODUCT_CORE}
+
+	# remove package repository
+	rm -rf ${1}${PACKAGESDIR}
+
+	# stop blocking start of configd
+	rm ${1}/etc/rc.conf.local
 }
 
 _setup_extras_generic()
@@ -847,7 +985,7 @@ ${PLUGINSDIR}
 	if [ -d ${STAGE}/var/run ]; then
 		PIDS=$(find ${STAGE}/var/run -name "*.pid")
 		for PID in ${PIDS}; do
-			pkill -F ${PID} || true;
+			pkill -F ${PID} || echo ">>> Stale PID file ${PID}";
 		done
 	fi
 

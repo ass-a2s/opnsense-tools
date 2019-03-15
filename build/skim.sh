@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# Copyright (c) 2015-2017 Franco Fichtner <franco@opnsense.org>
+# Copyright (c) 2015-2018 Franco Fichtner <franco@opnsense.org>
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -33,17 +33,24 @@ SELF=skim
 
 setup_stage ${STAGEDIR}
 
-MAKE_ARGS="__MAKE_CONF=${CONFIGDIR}/make.conf PRODUCT_FLAVOUR=${PRODUCT_FLAVOUR}"
-
-[ -z ${PORTS_LIST} ] && PORTS_LIST=$(
+if [ -z "${PORTS_LIST}" ]; then
+	PORTS_LIST=$(
 cat ${CONFIGDIR}/skim.conf ${CONFIGDIR}/ports.conf | \
-    while read PORT_ORIGIN PORT_BROKEN; do
+    while read PORT_ORIGIN PORT_IGNORE; do
+	eval PORT_ORIGIN=${PORT_ORIGIN}
 	if [ "$(echo ${PORT_ORIGIN} | colrm 2)" = "#" ]; then
 		continue
 	fi
 	echo ${PORT_ORIGIN}
 done
 )
+else
+	PORTS_LIST=$(
+for PORT_ORIGIN in ${PORTS_LIST}; do
+	echo ${PORT_ORIGIN}
+done
+)
+fi
 
 DIFF="$(which colordiff 2> /dev/null || echo cat)"
 LESS="less -R"
@@ -78,7 +85,14 @@ PORTS_COUNT=$(wc -l ${STAGEDIR}/skim | awk '{ print $1 }')
 PORTS_NUM=0
 
 while read PORT_ORIGIN PORT_BROKEN; do
-	PORT=${PORT_ORIGIN}
+	FLAVOR=${PORT_ORIGIN##*@}
+	PORT=${PORT_ORIGIN%%@*}
+
+	MAKE_ARGS="__MAKE_CONF=${CONFIGDIR}/make.conf"
+
+	if [ ${FLAVOR} != ${PORT} ]; then
+		MAKE_ARGS="${MAKE_ARGS} FLAVOR=${FLAVOR}"
+	fi
 
 	SOURCE=${PORTSDIR}
 	if [ ! -d ${PORTSDIR}/${PORT} ]; then
@@ -86,8 +100,8 @@ while read PORT_ORIGIN PORT_BROKEN; do
 	fi
 
 	PORT_DEPS=$(echo ${PORT}; ${ENV_FILTER} make -C ${SOURCE}/${PORT} \
-	    PORTSDIR=${SOURCE} ${MAKE_ARGS} all-depends-list | \
-	    awk -F"${SOURCE}/" '{print $2}')
+	    PORTSDIR=${SOURCE} ${MAKE_ARGS} \
+	    all-depends-list | awk -F"${SOURCE}/" '{print $2}')
 
 	for PORT in ${PORT_DEPS}; do
 		PORT_MASTER=$(${ENV_FILTER} make -C ${SOURCE}/${PORT} \

@@ -1,6 +1,6 @@
-include		RPI2
+include		ALLWINNER
 
-ident		SMP-RPI2
+ident		SMP-BPI
 
 # Remove to build a debug kernel:
 nomakeoptions	DEBUG
@@ -12,7 +12,6 @@ options		GEOM_MIRROR
 options		GEOM_UZIP
 options		IPFIREWALL_DEFAULT_TO_ACCEPT
 options		IPFIREWALL_VERBOSE
-options		IPSEC_NAT_T
 options		IPSTEALTH
 options		MROUTING
 options		PPS_SYNC
@@ -30,6 +29,8 @@ options		PAX
 options		PAX_ASLR
 options		PAX_HARDENING
 options		PAX_SEGVGUARD
-
-# OPNsense additions
-#options		PF_SHARE_FORWARD
+options		PAX_INSECURE_MODE
+options		PAX_CONTROL_ACL
+options		PAX_CONTROL_ACL_OVERRIDE_SUPPORT
+options		PAX_CONTROL_EXTATTR
+options		PAX_JAIL_SUPPORT

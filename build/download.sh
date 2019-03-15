@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# Copyright (c) 2017-2019 Franco Fichtner <franco@opnsense.org>
+# Copyright (c) 2018 Franco Fichtner <franco@opnsense.org>
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -27,51 +27,37 @@
 
 set -e
 
-SELF=update
+SELF=download
 
 . ./common.sh
 
-ARGS=${@}
-if [ -z "${ARGS}" ]; then
-	ARGS="core plugins ports src tools"
-fi
+download()
+{
+	echo ">>> Downloading ${1} from ${PRODUCT_SERVER}..."
+	scp ${PRODUCT_SERVER}:"${2}/${3}" ${2}
+}
 
-for ARG in ${ARGS}; do
+for ARG in ${@}; do
 	case ${ARG} in
-	core)
-		BRANCHES="${DEVELBRANCH} ${COREBRANCH}"
-		DIR=${COREDIR}
+	arm|dvd|nano|serial|vga|vm)
+		sh ./clean.sh ${ARG}
+		download ${ARG} ${IMAGESDIR} "*-${PRODUCT_FLAVOUR}-${ARG}-*"
 		;;
-	plugins)
-		BRANCHES="${DEVELBRANCH} ${PLUGINSBRANCH}"
-		DIR=${PLUGINSDIR}
+	base|kernel)
+		sh ./clean.sh ${ARG}
+		download ${ARG} ${SETSDIR} "${ARG}-*"
 		;;
-	ports)
-		BRANCHES=${PORTSBRANCH}
-		DIR=${PORTSDIR}
+	log)
+		# one log only, do not clear
+		download ${ARG} ${LOGSDIR} "${PRODUCT_VERSION}-*"
 		;;
-	portsref)
-		# XXX needs GITBASE=https://github.com/hardenedbsd
-		BRANCHES=${PORTSREFBRANCH}
-		DIR=${PORTSREFDIR}
-		ACCOUNT=hardenedbsd
+	logs)
+		sh ./clean.sh ${ARG}
+		download ${ARG} ${LOGSDIR} "[0-9]*"
 		;;
-	src)
-		BRANCHES=${SRCBRANCH}
-		DIR=${SRCDIR}
-		;;
-	tools)
-		BRANCHES=${TOOLSBRANCH}
-		DIR=${TOOLSDIR}
-		;;
-	*)
-		continue
+	packages|release)
+		sh ./clean.sh ${ARG}
+		download ${ARG} ${SETSDIR} "${ARG}-*-${PRODUCT_FLAVOUR}-*"
 		;;
 	esac
-
-	git_clone ${DIR}
-	git_fetch ${DIR}
-	for BRANCH in ${BRANCHES}; do
-		git_pull ${DIR} ${BRANCH}
-	done
 done

@@ -1,4 +1,4 @@
-# Copyright (c) 2015-2017 Franco Fichtner <franco@opnsense.org>
+# Copyright (c) 2015-2019 Franco Fichtner <franco@opnsense.org>
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -23,14 +23,16 @@
 # OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 # SUCH DAMAGE.
 
-STEPS=		arm base boot chroot clean core distfiles dvd info \
-		kernel nano plugins ports prefetch print rebase \
-		release rename serial sign skim test update verify \
-		vga vm xtools
-SCRIPTS=	batch nightly pkg_fingerprint pkg_sign
+STEPS=		arm base boot chroot clean compress confirm core distfiles \
+		download dvd info kernel nano plugins ports prefetch print \
+		rebase release rename rewind serial sign skim test update \
+		upload verify vga vm xtools
+SCRIPTS=	batch hotfix nightly
 .PHONY:		${STEPS}
 
 PAGER?=		less
+
+.MAKE.JOB.PREFIX?=	# tampers with some of our make invokes
 
 all:
 	@cat ${.CURDIR}/README.md | ${PAGER}
@@ -40,18 +42,18 @@ lint-steps:
 	@sh -n ${.CURDIR}/build/${STEP}.sh
 .endfor
 
-lint-scripts:
+lint-composite:
 .for SCRIPT in ${SCRIPTS}
-	@sh -n ${.CURDIR}/scripts/${SCRIPT}.sh
+	@sh -n ${.CURDIR}/composite/${SCRIPT}.sh
 .endfor
 
-lint: lint-steps lint-scripts
+lint: lint-steps lint-composite
 
 # Special vars to load early build.conf settings:
 
 TOOLSDIR?=	/usr/tools
 TOOLSBRANCH?=	master
-SETTINGS?=	17.7
+SETTINGS?=	19.1
 
 CONFIG?=	${TOOLSDIR}/config/${SETTINGS}/build.conf
 
@@ -67,7 +69,7 @@ _ARCH!=		uname -p
 ARCH?=		${_ARCH}
 KERNEL?=	SMP
 QUICK?=		#yes
-ADDITIONS?=	os-dyndns
+ADDITIONS?=	os-dyndns${SUFFIX}
 DEVICE?=	a10
 SPEED?=		115200
 UEFI?=		yes
@@ -78,20 +80,28 @@ MIRRORS?=	https://opnsense.c0urier.net \
 		http://mirror.sfo12.us.leaseweb.net/opnsense \
 		http://mirror.fra10.de.leaseweb.net/opnsense \
 		http://mirror.ams1.nl.leaseweb.net/opnsense
+SERVER?=	user@does.not.exist
+UPLOADDIR?=	# empty
 _VERSION!=	date '+%Y%m%d%H%M'
 VERSION?=	${_VERSION}
 STAGEDIRPREFIX?=/usr/obj
+# XXX GITBASE modifier
+PORTSREFBASE?=	https://github.com/hardenedbsd
 PORTSREFDIR?=	/usr/hardenedbsd-ports
 PORTSREFBRANCH?=master
+PLUGINSENV?=	PLUGIN_PHP=${PHP} PLUGIN_ABI=${SETTINGS}
 PLUGINSDIR?=	/usr/plugins
 PLUGINSBRANCH?=	master
 PORTSDIR?=	/usr/ports
 PORTSBRANCH?=	master
 COREDIR?=	/usr/core
 COREBRANCH?=	master
-COREENV?=	#CORE_PHP=71
+COREENV?=	CORE_PHP=${PHP} CORE_ABI=${SETTINGS}
 SRCDIR?=	/usr/src
 SRCBRANCH?=	master
+
+# for ports and core
+DEVELBRANCH?=	#master
 
 # A couple of meta-targets for easy use and ordering:
 
@@ -120,6 +130,10 @@ VERBOSE_FLAGS=	-x
 VERBOSE_HIDDEN=	@
 .endif
 
+.for _VERSION in PERL PHP PYTHON2 PYTHON3 RUBY
+VERSIONS+=	PRODUCT_${_VERSION}=${${_VERSION}}
+.endfor
+
 # Expand build steps to launch into the selected
 # script with the proper build options set:
 
@@ -135,11 +149,13 @@ ${STEP}: lint-steps
 	    -b ${SRCBRANCH} -B ${PORTSBRANCH} -e ${PLUGINSBRANCH} \
 	    -g ${TOOLSBRANCH} -E ${COREBRANCH} -G ${PORTSREFBRANCH} \
 	    -H "${COREENV}" -Q "${QUICK}" -u "${UEFI:tl}" -U "${SUFFIX}" \
-	    -V "${ADDITIONS}" -O "${GITBASE}" ${${STEP}_ARGS}
+	    -V "${ADDITIONS}" -O "${GITBASE}"  -r "${SERVER}" \
+	    -q "${VERSIONS}" -h "${PLUGINSENV}" -I "${UPLOADDIR}" \
+	    -D "${DEVELBRANCH}" ${${STEP}_ARGS}
 .endfor
 
 .for SCRIPT in ${SCRIPTS}
-${SCRIPT}: lint-scripts
+${SCRIPT}: lint-composite
 	${VERBOSE_HIDDEN} cd ${.CURDIR} && sh ${VERBOSE_FLAGS} \
-	    ./scripts/${SCRIPT}.sh ${${SCRIPT}_ARGS}
+	    ./composite/${SCRIPT}.sh ${${SCRIPT}_ARGS}
 .endfor

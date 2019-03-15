@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# Copyright (c) 2017-2019 Franco Fichtner <franco@opnsense.org>
+# Copyright (c) 2018 Franco Fichtner <franco@opnsense.org>
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -27,51 +27,16 @@
 
 set -e
 
-SELF=update
+SELF=confirm
 
 . ./common.sh
 
-ARGS=${@}
-if [ -z "${ARGS}" ]; then
-	ARGS="core plugins ports src tools"
-fi
+read -p "Proceed with this action? [y/N]: " YN
 
-for ARG in ${ARGS}; do
-	case ${ARG} in
-	core)
-		BRANCHES="${DEVELBRANCH} ${COREBRANCH}"
-		DIR=${COREDIR}
-		;;
-	plugins)
-		BRANCHES="${DEVELBRANCH} ${PLUGINSBRANCH}"
-		DIR=${PLUGINSDIR}
-		;;
-	ports)
-		BRANCHES=${PORTSBRANCH}
-		DIR=${PORTSDIR}
-		;;
-	portsref)
-		# XXX needs GITBASE=https://github.com/hardenedbsd
-		BRANCHES=${PORTSREFBRANCH}
-		DIR=${PORTSREFDIR}
-		ACCOUNT=hardenedbsd
-		;;
-	src)
-		BRANCHES=${SRCBRANCH}
-		DIR=${SRCDIR}
-		;;
-	tools)
-		BRANCHES=${TOOLSBRANCH}
-		DIR=${TOOLSDIR}
-		;;
-	*)
-		continue
-		;;
-	esac
-
-	git_clone ${DIR}
-	git_fetch ${DIR}
-	for BRANCH in ${BRANCHES}; do
-		git_pull ${DIR} ${BRANCH}
-	done
-done
+case ${YN} in
+[yY])
+	;;
+*)
+	exit 1
+	;;
+esac

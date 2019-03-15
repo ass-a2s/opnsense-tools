@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# Copyright (c) 2014-2017 Franco Fichtner <franco@opnsense.org>
+# Copyright (c) 2014-2019 Franco Fichtner <franco@opnsense.org>
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -49,35 +49,54 @@ if [ -f ${CONFIGDIR}/${PRODUCT_KERNEL} ]; then
 	    "${SRCDIR}/sys/${PRODUCT_TARGET}/conf/${PRODUCT_KERNEL}"
 fi
 
-MAKE_ARGS="TARGET_ARCH=${PRODUCT_ARCH} TARGET=${PRODUCT_TARGET}"
-MAKE_ARGS="${MAKE_ARGS} KERNCONF=${PRODUCT_KERNEL} __MAKE_CONF="
+MAKE_ARGS="
+TARGET_ARCH=${PRODUCT_ARCH}
+TARGET=${PRODUCT_TARGET}
+KERNCONF=${PRODUCT_KERNEL}
+SRCCONF=${CONFIGDIR}/src.conf
+__MAKE_CONF=
+${MAKE_ARGS_DEV}
+"
 
+if [ ${PRODUCT_HOST} != ${PRODUCT_ARCH} ]; then
+	${ENV_FILTER} make -s -C${SRCDIR} -j${CPUS} kernel-toolchain ${MAKE_ARGS}
+fi
 ${ENV_FILTER} make -s -C${SRCDIR} -j${CPUS} buildkernel ${MAKE_ARGS} NO_KERNELCLEAN=yes
 ${ENV_FILTER} make -s -C${SRCDIR}/release obj ${MAKE_ARGS}
 
-build_marker kernel
+# reset the distribution directory
+KERNEL_DISTDIR="$(make -C${SRCDIR}/release -V DISTDIR)/${SELF}"
+KERNEL_OBJDIR="$(make -C${SRCDIR}/release -V .OBJDIR)"
+setup_stage "${KERNEL_OBJDIR}/${KERNEL_DISTDIR}"
 
+# remove older object archives, too
 KERNEL_OBJ=$(make -C${SRCDIR}/release -V .OBJDIR)/kernel.txz
 DEBUG_OBJ=$(make -C${SRCDIR}/release -V .OBJDIR)/kernel-dbg.txz
-
 rm -f ${KERNEL_OBJ} ${DEBUG_OBJ}
+
+# We used kernel.txz because we did not rewrite it,
+# but as time went on and version info was embedded
+# for tighter signature verification handling it is
+# a convoluted action, but the archive gives us a
+# full update set so we repack it instead of using
+# src-related commands here too loosely...
 ${ENV_FILTER} make -s -C${SRCDIR}/release kernel.txz ${MAKE_ARGS}
 
 sh ./clean.sh ${SELF}
 
-if [ -z "$(tar -tf ${DEBUG_OBJ})" ]; then
-	echo -n ">>> Copying release kernel set... "
-	mv ${KERNEL_OBJ} ${KERNEL_RELEASE_SET}
-	echo "done"
-	KERNEL_SET=${KERNEL_RELEASE_SET}
-else
-	setup_stage ${STAGEDIR}
-	echo ">>> Generating debug kernel set:"
-	tar -C ${STAGEDIR} -xjf ${KERNEL_OBJ}
-	tar -C ${STAGEDIR} -xjf ${DEBUG_OBJ}
-	tar -C ${STAGEDIR} -cvf - . | xz > ${KERNEL_DEBUG_SET}
+setup_stage ${STAGEDIR} work
+
+echo ">>> Generating kernel set:"
+
+setup_set ${STAGEDIR}/work ${KERNEL_OBJ}
+
+KERNEL_SET=${KERNEL_RELEASE_SET}
+
+if [ -n "$(test -f ${DEBUG_OBJ} && tar -tf ${DEBUG_OBJ})" ]; then
+	setup_set ${STAGEDIR}/work ${DEBUG_OBJ}
 	KERNEL_SET=${KERNEL_DEBUG_SET}
 fi
 
-rm -f ${KERNEL_OBJ} ${DEBUG_OBJ}
+setup_version ${STAGEDIR} ${STAGEDIR}/work ${SELF}
+generate_set ${STAGEDIR}/work ${KERNEL_SET}
 generate_signature ${KERNEL_SET}

@@ -71,7 +71,7 @@ setup_kernel ${STAGEDIR}
 setup_xtools ${STAGEDIR}
 # XXX PHP needs to be defanged temporarily
 extract_packages ${STAGEDIR}
-install_packages ${STAGEDIR} php70
+install_packages ${STAGEDIR} php${PRODUCT_PHP}
 cp -p ${STAGEDIR}/usr/local/bin/php ${STAGEDIR}/php
 cp -p ${STAGEDIR}/usr/bin/true ${STAGEDIR}/usr/local/bin/php
 lock_packages ${STAGEDIR}
@@ -96,8 +96,17 @@ mount_msdosfs /dev/${DEV}s1 ${STAGEDIR}/boot/msdos
 
 cp -p ${STAGEDIR}/boot/ubldr ${STAGEDIR}/boot/msdos/ubldr
 cp -p ${STAGEDIR}/boot/ubldr.bin ${STAGEDIR}/boot/msdos/ubldr.bin
-cp -p ${STAGEDIR}/boot/dtb/rpi2.dtb ${STAGEDIR}/boot/msdos/rpi2.dtb
-cp -p /usr/local/share/u-boot/u-boot-rpi2/* ${STAGEDIR}/boot/msdos
+
+case "${PRODUCT_DEVICE}" in
+rpi2)
+	cp -p ${STAGEDIR}/boot/dtb/rpi2.dtb ${STAGEDIR}/boot/msdos/rpi2.dtb
+	cp -p /usr/local/share/u-boot/u-boot-rpi2/* ${STAGEDIR}/boot/msdos
+	;;
+bpi)
+	cp -p ${STAGEDIR}/boot/dtb/bananapi.dtb ${STAGEDIR}/boot/msdos/bananapi.dtb
+	cp -p /usr/local/share/u-boot/u-boot-bananapi/* ${STAGEDIR}/boot/msdos
+	;;
+esac
 
 umount ${STAGEDIR}/boot/msdos
 umount ${STAGEDIR}

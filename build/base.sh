@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# Copyright (c) 2014-2017 Franco Fichtner <franco@opnsense.org>
+# Copyright (c) 2014-2019 Franco Fichtner <franco@opnsense.org>
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -41,44 +41,58 @@ fi
 git_branch ${SRCDIR} ${SRCBRANCH} SRCBRANCH
 git_describe ${SRCDIR}
 
-BASE_SET=${SETSDIR}/base-${REPO_VERSION}-${PRODUCT_ARCH}
-
-setup_stage ${STAGEDIR}
-
-MAKE_ARGS="TARGET_ARCH=${PRODUCT_ARCH} TARGET=${PRODUCT_TARGET}"
-MAKE_ARGS="${MAKE_ARGS} SRCCONF=${CONFIGDIR}/src.conf __MAKE_CONF="
-# XXX for our RPI2 builds, needs a better place in the long run
-MAKE_ARGS="${MAKE_ARGS} UBLDR_LOADADDR=0x2000000"
+MAKE_ARGS="
+TARGET_ARCH=${PRODUCT_ARCH}
+TARGET=${PRODUCT_TARGET}
+SRCCONF=${CONFIGDIR}/src.conf
+__MAKE_CONF=
+${MAKE_ARGS_DEV}
+"
 
 ${ENV_FILTER} make -s -C${SRCDIR} -j${CPUS} buildworld ${MAKE_ARGS} NO_CLEAN=yes
 ${ENV_FILTER} make -s -C${SRCDIR}/release obj ${MAKE_ARGS}
 
-build_marker base
+# reset the distribution directory
+BASE_DISTDIR="$(make -C${SRCDIR}/release -V DISTDIR)/${SELF}"
+BASE_OBJDIR="$(make -C${SRCDIR}/release -V .OBJDIR)"
+setup_stage "${BASE_OBJDIR}/${BASE_DISTDIR}"
 
-rm -f $(make -C${SRCDIR}/release -V .OBJDIR)/base.txz
+# remove older object archives, too
+BASE_OBJ=$(make -C${SRCDIR}/release -V .OBJDIR)/base.txz
+rm -f ${BASE_OBJ}
+
 ${ENV_FILTER} make -s -C${SRCDIR}/release base.txz ${MAKE_ARGS}
 
 sh ./clean.sh ${SELF}
 
-echo -n ">>> Copying base set... "
+setup_stage ${STAGEDIR} work
 
-mv $(make -C${SRCDIR}/release -V .OBJDIR)/base.txz ${BASE_SET}.txz
+echo ">>> Generating base set:"
 
-echo "done"
+BASE_SET=${SETSDIR}/base-${REPO_VERSION}-${PRODUCT_ARCH}.txz
+
+setup_set ${STAGEDIR}/work ${BASE_OBJ}
+
+# XXX needs to be in obsolete file list for control purposes
+mkdir -p ${STAGEDIR}/work/usr/local/opnsense/version
+touch ${STAGEDIR}/work/usr/local/opnsense/version/base
+touch ${STAGEDIR}/work/usr/local/opnsense/version/base.arch
+touch ${STAGEDIR}/work/usr/local/opnsense/version/base.mtree
+touch ${STAGEDIR}/work/usr/local/opnsense/version/base.obsolete
+touch ${STAGEDIR}/work/usr/local/opnsense/version/base.size
 
 echo -n ">>> Generating obsolete file list... "
 
-tar -tf ${BASE_SET}.txz | \
-    sed -e 's/^\.//g' -e '/\/$/d' | sort > ${STAGEDIR}/setdiff.new
+(cd ${STAGEDIR}/work; find . ! -type d) | sed -e 's/^\.//g' | \
+    sort > ${STAGEDIR}/setdiff.new
 
 : > ${STAGEDIR}/setdiff.old
-if [ -s ${CONFIGDIR}/plist.base.${PRODUCT_ARCH} ]; then
-	cat ${CONFIGDIR}/plist.base.${PRODUCT_ARCH} | \
-	    sed -e 's/^\.//g' -e '/\/$/d' | sort > ${STAGEDIR}/setdiff.old
+if [ -f ${CONFIGDIR}/plist.base.${PRODUCT_ARCH} ]; then
+	cp ${CONFIGDIR}/plist.base.${PRODUCT_ARCH} ${STAGEDIR}/setdiff.old
 fi
 
 : > ${STAGEDIR}/setdiff.tmp
-if [ -s ${CONFIGDIR}/plist.obsolete.${PRODUCT_ARCH} ]; then
+if [ -f ${CONFIGDIR}/plist.obsolete.${PRODUCT_ARCH} ]; then
 	diff -u ${CONFIGDIR}/plist.obsolete.${PRODUCT_ARCH} \
 	    ${STAGEDIR}/setdiff.new | grep '^-/' | \
 	    cut -b 2- > ${STAGEDIR}/setdiff.tmp
@@ -86,9 +100,10 @@ fi
 
 (cat ${STAGEDIR}/setdiff.tmp; diff -u ${STAGEDIR}/setdiff.old \
     ${STAGEDIR}/setdiff.new | grep '^-/' | cut -b 2-) | \
-    sort -u > ${BASE_SET}.obsolete
+    sort -u > ${STAGEDIR}/obsolete
 
 echo "done"
 
-generate_signature ${BASE_SET}.txz
-generate_signature ${BASE_SET}.obsolete
+setup_version ${STAGEDIR} ${STAGEDIR}/work ${SELF} ${STAGEDIR}/obsolete
+generate_set ${STAGEDIR}/work ${BASE_SET}
+generate_signature ${BASE_SET}

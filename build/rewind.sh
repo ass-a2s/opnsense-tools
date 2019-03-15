@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# Copyright (c) 2017-2019 Franco Fichtner <franco@opnsense.org>
+# Copyright (c) 2018-2019 Franco Fichtner <franco@opnsense.org>
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -27,41 +27,37 @@
 
 set -e
 
-SELF=update
+SELF=rewind
 
 . ./common.sh
 
-ARGS=${@}
-if [ -z "${ARGS}" ]; then
-	ARGS="core plugins ports src tools"
+if [ -n "${DEVELBRANCH}" ]; then
+	echo ">>> Cannot rewind, please unset DEVELBRANCH=${DEVELBRANCH}"
+	exit 1
 fi
+
+ARGS="src ports plugins core tools"
 
 for ARG in ${ARGS}; do
 	case ${ARG} in
 	core)
-		BRANCHES="${DEVELBRANCH} ${COREBRANCH}"
+		BRANCH=${COREBRANCH}
 		DIR=${COREDIR}
 		;;
 	plugins)
-		BRANCHES="${DEVELBRANCH} ${PLUGINSBRANCH}"
+		BRANCH=${PLUGINSBRANCH}
 		DIR=${PLUGINSDIR}
 		;;
 	ports)
-		BRANCHES=${PORTSBRANCH}
+		BRANCH=${PORTSBRANCH}
 		DIR=${PORTSDIR}
 		;;
-	portsref)
-		# XXX needs GITBASE=https://github.com/hardenedbsd
-		BRANCHES=${PORTSREFBRANCH}
-		DIR=${PORTSREFDIR}
-		ACCOUNT=hardenedbsd
-		;;
 	src)
-		BRANCHES=${SRCBRANCH}
+		BRANCH=${SRCBRANCH}
 		DIR=${SRCDIR}
 		;;
 	tools)
-		BRANCHES=${TOOLSBRANCH}
+		BRANCH=${TOOLSBRANCH}
 		DIR=${TOOLSDIR}
 		;;
 	*)
@@ -69,9 +65,7 @@ for ARG in ${ARGS}; do
 		;;
 	esac
 
-	git_clone ${DIR}
-	git_fetch ${DIR}
-	for BRANCH in ${BRANCHES}; do
-		git_pull ${DIR} ${BRANCH}
-	done
+	git_tag ${DIR} ${PRODUCT_VERSION}
+	git_pull ${DIR} ${BRANCH}
+	git_reset ${DIR}
 done

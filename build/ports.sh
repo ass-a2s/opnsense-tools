@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# Copyright (c) 2014-2017 Franco Fichtner <franco@opnsense.org>
+# Copyright (c) 2014-2019 Franco Fichtner <franco@opnsense.org>
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -31,8 +31,10 @@ SELF=ports
 
 . ./common.sh
 
-[ -z ${PORTS_LIST} ] && PORTS_LIST=$(
+if [ -z "${PORTS_LIST}" ]; then
+	PORTS_LIST=$(
 cat ${CONFIGDIR}/ports.conf | while read PORT_ORIGIN PORT_IGNORE; do
+	eval PORT_ORIGIN=${PORT_ORIGIN}
 	if [ "$(echo ${PORT_ORIGIN} | colrm 2)" = "#" ]; then
 		continue
 	fi
@@ -54,10 +56,16 @@ cat ${CONFIGDIR}/ports.conf | while read PORT_ORIGIN PORT_IGNORE; do
 			continue
 		fi
 	fi
-
 	echo ${PORT_ORIGIN}
 done
 )
+else
+	PORTS_LIST=$(
+for PORT_ORIGIN in ${PORTS_LIST}; do
+	echo ${PORT_ORIGIN}
+done
+)
+fi
 
 check_packages ${SELF} ${@}
 
@@ -73,99 +81,112 @@ setup_distfiles ${STAGEDIR}
 
 extract_packages ${STAGEDIR}
 remove_packages ${STAGEDIR} ${@} ${PRODUCT_CORES} ${PRODUCT_PLUGINS}
-
-for PKG in $(cd ${STAGEDIR}; find .${PACKAGESDIR}/All -type f); do
-	# all packages that install have their dependencies fulfilled
-	if pkg -c ${STAGEDIR} add ${PKG}; then
-		continue
-	fi
-
-	# some packages clash in files with others, check for conflicts
-	PKGORIGIN=$(pkg -c ${STAGEDIR} info -F ${PKG} | grep ^Origin | awk '{ print $3; }')
-	PKGGLOBS=
-	for CONFLICTS in CONFLICTS CONFLICTS_INSTALL; do
-		PKGGLOBS="${PKGGLOBS} $(make -C ${PORTSDIR}/${PKGORIGIN} -V ${CONFLICTS})"
-	done
-	for PKGGLOB in ${PKGGLOBS}; do
-		pkg -c ${STAGEDIR} remove -gy "${PKGGLOB}" || true
-	done
-
-	# if the conflicts are resolved this works now, but remove
-	# the package again as it may clash again later...
-	if pkg -c ${STAGEDIR} add ${PKG}; then
-		pkg -c ${STAGEDIR} remove -y ${PKGORIGIN}
-		continue
-	fi
-
-	# if nothing worked, we are missing a dependency and force a rebuild
-	rm -f ${STAGEDIR}/${PKG}
-done
+cleanup_packages ${STAGEDIR}
 
 MAKE_CONF="${CONFIGDIR}/make.conf"
 if [ -f ${MAKE_CONF} ]; then
 	cp ${MAKE_CONF} ${STAGEDIR}/etc/make.conf
 fi
 
+PORTS_LIST=$(echo ports-mgmt/pkg; echo "${PORTS_LIST}")
+
+cat > ${STAGEDIR}/bin/echotime <<EOF
+#!/bin/sh
+echo "[\$(date '+%Y%m%d%H%M%S')]" \${*}
+EOF
+
+chmod 755 ${STAGEDIR}/bin/echotime
+
+echo "ECHO_MSG=echotime" >> ${STAGEDIR}/etc/make.conf
+
 # block SIGINT to allow for collecting port progress (use with care)
 trap : 2
 
-if ! ${ENV_FILTER} chroot ${STAGEDIR} /bin/sh -es << EOF; then SELF=; fi
-PKG_ORIGIN="ports-mgmt/pkg"
-
-if ! pkg -N; then
-	make -s -C ${PORTSDIR}/\${PKG_ORIGIN} install \
-	    UNAME_r=\$(freebsd-version)
-fi
-
-pkg set -yaA1
-pkg set -yA0 \${PKG_ORIGIN}
-pkg autoremove -y
-
-pkg create -nao ${PACKAGESDIR}/All
+${ENV_FILTER} chroot ${STAGEDIR} /bin/sh -s << EOF || true
+# create a caching mirror for all temporary package dependencies
+mkdir -p ${PACKAGESDIR}-cache
+cp -r ${PACKAGESDIR}/All ${PACKAGESDIR}-cache/All
 
 echo "${PORTS_LIST}" | while read PORT_ORIGIN; do
+	FLAVOR=\${PORT_ORIGIN##*@}
+	PORT=\${PORT_ORIGIN%%@*}
+	MAKE_ARGS="
+PACKAGES=${PACKAGESDIR}-cache
+PRODUCT_ARCH=${PRODUCT_ARCH}
+PRODUCT_FLAVOUR=${PRODUCT_FLAVOUR}
+PRODUCT_PERL=${PRODUCT_PERL}
+PRODUCT_PHP=${PRODUCT_PHP}
+PRODUCT_PYTHON2=${PRODUCT_PYTHON2}
+PRODUCT_PYTHON3=${PRODUCT_PYTHON3}
+PRODUCT_RUBY=${PRODUCT_RUBY}
+UNAME_r=\$(freebsd-version)
+"
+
+	if [ \${FLAVOR} != \${PORT} ]; then
+		MAKE_ARGS="\${MAKE_ARGS} FLAVOR=\${FLAVOR}"
+	fi
+
 	# check whether the package has already been built
-	PKGFILE=\$(make -C ${PORTSDIR}/\${PORT_ORIGIN} -V PKGFILE \
-	    PRODUCT_FLAVOUR=${PRODUCT_FLAVOUR} PACKAGES=${PACKAGESDIR} \
-	    UNAME_r=\$(freebsd-version))
+	PKGFILE=\$(make -C ${PORTSDIR}/\${PORT} -V PKGFILE \${MAKE_ARGS})
 	if [ -f \${PKGFILE} ]; then
 		continue
 	fi
 
-	# check whether the package is available as an older version
+	# check whether the package is available
+	# under a different version number
 	PKGNAME=\$(basename \${PKGFILE})
 	PKGNAME=\${PKGNAME%%-[0-9]*}.txz
 	PKGLINK=${PACKAGESDIR}/Latest/\${PKGNAME}
 	if [ -L \${PKGLINK} ]; then
 		PKGFILE=\$(readlink -f \${PKGLINK} || true)
 		if [ -f \${PKGFILE} ]; then
-			echo ">>> A different version of \${PORT_ORIGIN} exists!" >> /.pkg-warn
+			PKGVERS=\$(make -C ${PORTSDIR}/\${PORT} -V PKGVERSION \${MAKE_ARGS})
+			echo ">>> Skipped version \${PKGVERS} for \${PORT_ORIGIN}" >> /.pkg-warn
 			continue
 		fi
 	fi
 
-	make -s -C ${PORTSDIR}/\${PORT_ORIGIN} install \
-	    PRODUCT_FLAVOUR=${PRODUCT_FLAVOUR} PACKAGES=${PACKAGESDIR} \
-	    USE_PACKAGE_DEPENDS=yes UNAME_r=\$(freebsd-version)
+	if ! make -s -C ${PORTSDIR}/\${PORT} install \
+	    USE_PACKAGE_DEPENDS=yes \${MAKE_ARGS}; then
+		PKGVERS=\$(make -C ${PORTSDIR}/\${PORT} -V PKGVERSION \${MAKE_ARGS})
+		echo ">>> Aborted version \${PKGVERS} for \${PORT_ORIGIN}" >> /.pkg-err
+		# XXX Eventually continue now that
+		# we can log the progress in pkg-err.
+		# We know that the build is flawed,
+		# but with a bit of luck later build
+		# progress is not lost forever.  :)
+		exit 1
+	fi
+
+	for PKGNAME in \$(pkg query %n); do
+		pkg create -no ${PACKAGESDIR}-cache/All \${PKGNAME}
+	done
 
 	echo "${PORTS_LIST}" | while read PORT_DEPENDS; do
-		PORT_DEPNAME=\$(pkg query -e "%o == \${PORT_DEPENDS}" %n)
+		PORT_DEPNAME=\$(pkg query -e "%o == \${PORT_DEPENDS%%@*}" %n)
 		if [ -n "\${PORT_DEPNAME}" ]; then
+			echo ">>> Locking package dependency: \${PORT_DEPNAME}"
 			pkg set -yA0 \${PORT_DEPNAME}
 		fi
 	done
 
 	pkg autoremove -y
+
 	for PKGNAME in \$(pkg query %n); do
-		pkg create -no ${PACKAGESDIR}/All \${PKGNAME}
+		OLD=\$(find ${PACKAGESDIR}/All -name "\${PKGNAME}-[0-9]*.txz")
+		if [ -n "\${OLD}" ]; then
+			# already found
+			continue
+		fi
+		NEW=\$(find ${PACKAGESDIR}-cache/All -name "\${PKGNAME}-[0-9]*.txz")
+		echo ">>> Saving runtime package: \${PKGNAME}"
+		cp \${NEW} ${PACKAGESDIR}/All
 	done
 
-	make -s -C ${PORTSDIR}/\${PORT_ORIGIN} clean \
-	    PRODUCT_FLAVOUR=${PRODUCT_FLAVOUR} \
-	    UNAME_r=\$(freebsd-version)
+	make -s -C ${PORTSDIR}/\${PORT} clean \${MAKE_ARGS}
 
 	pkg set -yaA1
-	pkg set -yA0 \${PKG_ORIGIN}
+	pkg set -yA0 ports-mgmt/pkg
 	pkg autoremove -y
 done
 EOF
@@ -173,14 +194,15 @@ EOF
 # unblock SIGINT
 trap - 2
 
-bundle_packages ${STAGEDIR} "${SELF}" ports plugins core
+bundle_packages ${STAGEDIR} ${SELF} ports plugins core
 
 if [ -f ${STAGEDIR}/.pkg-warn ]; then
 	echo ">>> WARNING: The build may have integrity issues!"
 	cat ${STAGEDIR}/.pkg-warn
 fi
 
-if [ "${SELF}" != "ports" ]; then
-	echo ">>> The ports build did not finish properly :("
+if [ -f ${STAGEDIR}/.pkg-err ]; then
+	echo ">>> ERROR: The build encountered fatal issues!"
+	cat ${STAGEDIR}/.pkg-err
 	exit 1
 fi

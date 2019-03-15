@@ -3,7 +3,7 @@ include		GENERIC
 ident		SMP
 
 # Remove to build a debug kernel:
-#nomakeoptions	DEBUG
+nomakeoptions	DEBUG
 
 options		DDB
 options		GEOM_BDE
@@ -48,10 +48,12 @@ device		netmap
 device		speaker
 
 # HardenedBSD goodies
-#options		PAX
-#options		PAX_ASLR
-#options		PAX_HARDENING
-#options		PAX_SEGVGUARD
-
-# OPNsense additions
-#options		PF_SHARE_FORWARD
+options		PAX
+options		PAX_ASLR
+options		PAX_HARDENING
+options		PAX_SEGVGUARD
+options		PAX_INSECURE_MODE
+options		PAX_CONTROL_ACL
+options		PAX_CONTROL_ACL_OVERRIDE_SUPPORT
+options		PAX_CONTROL_EXTATTR
+options		PAX_JAIL_SUPPORT

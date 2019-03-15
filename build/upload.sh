@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# Copyright (c) 2017-2019 Franco Fichtner <franco@opnsense.org>
+# Copyright (c) 2018 Franco Fichtner <franco@opnsense.org>
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -27,51 +27,32 @@
 
 set -e
 
-SELF=update
+SELF=upload
 
 . ./common.sh
 
-ARGS=${@}
-if [ -z "${ARGS}" ]; then
-	ARGS="core plugins ports src tools"
-fi
+upload()
+{
+	echo ">>> Uploading ${1} to ${PRODUCT_SERVER}..."
+	(cd ${2}; scp ${3} ${PRODUCT_SERVER}:${UPLOADDIR})
+}
 
-for ARG in ${ARGS}; do
+for ARG in ${@}; do
 	case ${ARG} in
-	core)
-		BRANCHES="${DEVELBRANCH} ${COREBRANCH}"
-		DIR=${COREDIR}
+	arm|dvd|nano|serial|vga|vm)
+		upload ${ARG} ${IMAGESDIR} "*-${PRODUCT_FLAVOUR}-${ARG}-*"
 		;;
-	plugins)
-		BRANCHES="${DEVELBRANCH} ${PLUGINSBRANCH}"
-		DIR=${PLUGINSDIR}
+	base|kernel)
+		upload ${ARG} ${SETSDIR} "${ARG}-*"
 		;;
-	ports)
-		BRANCHES=${PORTSBRANCH}
-		DIR=${PORTSDIR}
+	log)
+		upload ${ARG} ${LOGSDIR} "${PRODUCT_VERSION}-*"
 		;;
-	portsref)
-		# XXX needs GITBASE=https://github.com/hardenedbsd
-		BRANCHES=${PORTSREFBRANCH}
-		DIR=${PORTSREFDIR}
-		ACCOUNT=hardenedbsd
+	logs)
+		upload ${ARG} ${LOGSDIR} "[0-9]*"
 		;;
-	src)
-		BRANCHES=${SRCBRANCH}
-		DIR=${SRCDIR}
-		;;
-	tools)
-		BRANCHES=${TOOLSBRANCH}
-		DIR=${TOOLSDIR}
-		;;
-	*)
-		continue
+	packages|release)
+		upload ${ARG} ${SETSDIR} "${ARG}-*-${PRODUCT_FLAVOUR}-*"
 		;;
 	esac
-
-	git_clone ${DIR}
-	git_fetch ${DIR}
-	for BRANCH in ${BRANCHES}; do
-		git_pull ${DIR} ${BRANCH}
-	done
 done
