@@ -36,8 +36,8 @@ for ARG in ${@}; do
 	arm)
 		echo ">>> Renaming arm image: ${PRODUCT_VERSION}"
 		for FILE in $(find ${IMAGESDIR} -name \
-		    "*-${PRODUCT_FLAVOUR}-arm-${PRODUCT_ARCH}.*"); do
-		    mv ${FILE} ${IMAGESDIR}/${PRODUCT_NAME}${PRODUCT_SUFFIX}-${PRODUCT_VERSION}-${PRODUCT_FLAVOUR}-arm-${FILE##*-}
+		    "*-${PRODUCT_FLAVOUR}-arm-${PRODUCT_ARCH}-${PRODUCT_DEVICE}.*"); do
+		    mv ${FILE} ${IMAGESDIR}/${PRODUCT_NAME}${PRODUCT_SUFFIX}-${PRODUCT_VERSION}-${PRODUCT_FLAVOUR}-arm-${FILE##*-arm-}
 		done
 		;;
 	base)
@@ -121,9 +121,9 @@ for ARG in ${@}; do
 		;;
 	vm)
 		echo ">>> Renaming vm set: ${PRODUCT_VERSION}"
-		for FILE in $(find ${SETSDIR} -name \
+		for FILE in $(find ${IMAGESDIR} -name \
 		    "*-${PRODUCT_FLAVOUR}-vm-${PRODUCT_ARCH}.*"); do
-			mv ${FILE} ${SETSDIR}/${PRODUCT_NAME}${PRODUCT_SUFFIX}-${PRODUCT_VERSION}-${PRODUCT_FLAVOUR}-vm-${FILE##*-}
+			mv ${FILE} ${IMAGESDIR}/${PRODUCT_NAME}${PRODUCT_SUFFIX}-${PRODUCT_VERSION}-${PRODUCT_FLAVOUR}-vm-${FILE##*-}
 		done
 		;;
 	esac
